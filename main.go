@@ -30,8 +30,7 @@ func main() {
 		time.Sleep(time.Millisecond * 500)
 		_, err := ws.Write([]byte("DDhttp"))
 		if err != nil {
-			fmt.Println("error to send DDhttp packet:", err)
-			continue
+			panic(err)
 		}
 		buf := make([]byte, 1024*100) //100k
 		dataLen, err := ws.Read(buf)
