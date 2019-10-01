@@ -20,17 +20,33 @@ type GoResult struct {
 	Error string `json:"error"`
 }
 
+var (
+	ws *websocket.Conn
+)
+
 func main() {
 	fmt.Println("Dial", "wss://cluster.vtbs.moe")
-	ws, err := websocket.Dial("wss://cluster.vtbs.moe", "", "https://cluster.vtbs.moe")
-	if err != nil {
+	connect := func() error {
+		conn, err := websocket.Dial("wss://cluster.vtbs.moe", "", "https://cluster.vtbs.moe")
+		if err != nil {
+			return err
+		}
+		ws = conn
+		return nil
+	}
+	if err := connect(); err != nil {
 		panic(err)
 	}
 	for {
 		time.Sleep(time.Millisecond * 500)
 		_, err := ws.Write([]byte("DDhttp"))
 		if err != nil {
-			panic(err)
+			_ = ws.Close()
+			if err := connect(); err != nil {
+				panic(err)
+			}
+			fmt.Println("reconnect success.")
+			continue
 		}
 		buf := make([]byte, 1024*100) //100k
 		dataLen, err := ws.Read(buf)
