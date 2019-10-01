@@ -11,6 +11,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type GoResult struct {
@@ -26,6 +27,7 @@ func main() {
 		panic(err)
 	}
 	for {
+		time.Sleep(time.Millisecond * 500)
 		_, err := ws.Write([]byte("DDhttp"))
 		if err != nil {
 			fmt.Println("error to send DDhttp packet:", err)
