@@ -10,6 +10,8 @@ import (
 	"golang.org/x/net/websocket"
 	"io/ioutil"
 	"net/http"
+	"os"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -25,9 +27,14 @@ var (
 )
 
 func main() {
-	fmt.Println("Dial", "wss://cluster.vtbs.moe")
+	name := "dd-go"
+	if len(os.Args) > 1 {
+		name = strings.Join(os.Args[1:], " ")
+	}
+	url := "wss://cluster.vtbs.moe/?runtime=" + runtime.Version() + "&version=0.2&platform=" + runtime.GOOS + "&name=" + name
+	fmt.Println("Dial", url)
 	connect := func() error {
-		conn, err := websocket.Dial("wss://cluster.vtbs.moe", "", "https://cluster.vtbs.moe")
+		conn, err := websocket.Dial(url, "", "https://cluster.vtbs.moe")
 		if err != nil {
 			return err
 		}
