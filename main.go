@@ -31,7 +31,7 @@ func main() {
 	if len(os.Args) > 1 {
 		name = strings.Join(os.Args[1:], " ")
 	}
-	url := "wss://cluster.vtbs.moe/?runtime=" + runtime.Version() + "&version=0.2&platform=" + runtime.GOOS + "&name=" + name
+	url := "wss://cluster.vtbs.moe/?runtime=" + runtime.Version() + "&version=0.3&platform=" + runtime.GOOS + "@" + runtime.GOARCH + "&name=" + name
 	fmt.Println("Dial", url)
 	connect := func() error {
 		conn, err := websocket.Dial(url, "", "https://cluster.vtbs.moe")
