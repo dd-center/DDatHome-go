@@ -36,7 +36,6 @@ var (
 	ddName   string  = "DD"
 	interval float64 = 500
 	version  string  = "1.0.0"
-	cmdline  bool    = false
 	ws       *websocket.Conn
 )
 
@@ -138,7 +137,6 @@ func main() {
 		}
 	}
 
-	cmdline = true
 	err = s.Run()
 	if err != nil {
 		fmt.Println(err)
@@ -157,9 +155,7 @@ func Processor(payload []byte) (string, string, error) {
 		fmt.Println("task", key, "error:", err)
 		return "", key, err
 	}
-	if cmdline {
-		fmt.Println("task", key, "handled, url:", json.Get("data.url").Str)
-	}
+	//fmt.Println("task", key, "handled, url:", json.Get("data.url").Str)
 	return data, key, nil
 }
 
