@@ -6,15 +6,25 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/kardianos/service"
 	"github.com/tidwall/gjson"
 	"golang.org/x/net/websocket"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 )
+
+type program struct{}
+
+func (p *program) Start(s service.Service) error {
+	go p.run()
+	return nil
+}
 
 type GoResult struct {
 	Key   string `json:"key"`
@@ -23,18 +33,30 @@ type GoResult struct {
 }
 
 var (
-	ws *websocket.Conn
+	ddName   string  = "DD"
+	interval float64 = 500
+	version  string  = "1.0.0"
+	cmdline  bool    = false
+	ws       *websocket.Conn
 )
 
-func main() {
-	name := "dd-go"
-	if len(os.Args) > 1 {
-		name = strings.Join(os.Args[1:], " ")
+func (p *program) run() {
+	FileName := getCurrentDirectory() + "/config.json"
+	if Exists(FileName) {
+		b, err := ioutil.ReadFile(FileName)
+		if err != nil {
+			panic(err)
+		}
+		jsons := gjson.Parse(string(b))
+		ddName = jsons.Get("nickname").Str
+		interval = jsons.Get("interval").Num
 	}
-	url := "wss://cluster.vtbs.moe/?runtime=" + runtime.Version() + "&version=0.3&platform=" + runtime.GOOS + "@" + runtime.GOARCH + "&name=" + name
-	fmt.Println("Dial", url)
+
+	urls := "wss://cluster.vtbs.moe/?runtime=go&version=" + version + "&platform=" + runtime.GOOS + "&name=" + url.QueryEscape(ddName)
+
+	fmt.Println("Dial", urls)
 	connect := func() error {
-		conn, err := websocket.Dial(url, "", "https://cluster.vtbs.moe")
+		conn, err := websocket.Dial(urls, "", "https://cluster.vtbs.moe")
 		if err != nil {
 			return err
 		}
@@ -45,7 +67,7 @@ func main() {
 		panic(err)
 	}
 	for {
-		time.Sleep(time.Millisecond * 500)
+		time.Sleep(time.Millisecond * time.Duration(interval))
 		_, err := ws.Write([]byte("DDhttp"))
 		if err != nil {
 			_ = ws.Close()
@@ -74,6 +96,55 @@ func main() {
 	}
 }
 
+func (p *program) Stop(s service.Service) error {
+	return nil
+}
+
+func main() {
+	svcConfig := &service.Config{
+		Name:        "DDatHome",
+		DisplayName: "DD@Home",
+		Description: "DD@home Service",
+	}
+	prg := &program{}
+	s, err := service.New(prg, svcConfig)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	if len(os.Args) > 1 {
+		if os.Args[1] == "install" {
+			err := s.Install()
+			if err != nil {
+				fmt.Println("Service install failed: " + err.Error())
+				return
+			}
+			fmt.Println("Service install successfully!")
+			return
+		}
+
+		if os.Args[1] == "uninstall" {
+			err := s.Uninstall()
+			if err != nil {
+				fmt.Println("Service uninstall failed" + err.Error())
+				return
+			}
+			fmt.Println("Service uninstall successfully!")
+			return
+		}
+	}
+
+	cmdline = true
+	err = s.Run()
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
 func Processor(payload []byte) (string, string, error) {
 	json := gjson.Parse(string(payload))
 	key := json.Get("key").Str
@@ -86,7 +157,9 @@ func Processor(payload []byte) (string, string, error) {
 		fmt.Println("task", key, "error:", err)
 		return "", key, err
 	}
-	fmt.Println("task", key, "handled, url:", json.Get("data.url").Str)
+	if cmdline {
+		fmt.Println("task", key, "handled, url:", json.Get("data.url").Str)
+	}
 	return data, key, nil
 }
 
@@ -119,4 +192,23 @@ func GetString(url string) (string, error) {
 		return "", err
 	}
 	return string(bytes), nil
+}
+
+func getCurrentDirectory() string {
+	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	if err != nil {
+		panic(err)
+	}
+	return strings.Replace(dir, "\\", "/", -1)
+}
+
+func Exists(path string) bool {
+	_, err := os.Stat(path)
+	if err != nil {
+		if os.IsExist(err) {
+			return true
+		}
+		return false
+	}
+	return true
 }
