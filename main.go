@@ -35,7 +35,7 @@ type GoResult struct {
 var (
 	ddName   string  = "DD"
 	interval float64 = 500
-	version  string  = "1.0.0"
+	version  string  = "1.0.1"
 	ws       *websocket.Conn
 )
 
@@ -70,8 +70,9 @@ func (p *program) run() {
 		_, err := ws.Write([]byte("DDhttp"))
 		if err != nil {
 			_ = ws.Close()
-			if err := connect(); err != nil {
-				panic(err)
+			for connect() != nil {
+				_ = ws.Close()
+				time.Sleep(time.Millisecond * time.Duration(500))
 			}
 			fmt.Println("reconnect success.")
 			continue
@@ -90,8 +91,16 @@ func (p *program) run() {
 		if err != nil {
 			res.Error = err.Error()
 		}
-		json, _ := json.Marshal(res)
-		_, _ = ws.Write(json)
+		json, err := json.Marshal(res)
+		if err != nil {
+			fmt.Println("json error:", err)
+			continue
+		}
+		_, err = ws.Write(json)
+		if err != nil {
+			fmt.Println("error to write websocket:", err)
+			continue
+		}
 	}
 }
 
@@ -110,7 +119,6 @@ func main() {
 	if err != nil {
 		fmt.Println(err)
 	}
-
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -155,7 +163,7 @@ func Processor(payload []byte) (string, string, error) {
 		fmt.Println("task", key, "error:", err)
 		return "", key, err
 	}
-	//fmt.Println("task", key, "handled, url:", json.Get("data.url").Str)
+	fmt.Println("task", key, "handled, url:", json.Get("data.url").Str)
 	return data, key, nil
 }
 
