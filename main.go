@@ -163,7 +163,7 @@ func Processor(payload []byte) (string, string, error) {
 		fmt.Println("task", key, "error:", err)
 		return "", key, err
 	}
-	fmt.Println("task", key, "handled, url:", json.Get("data.url").Str)
+	//fmt.Println("task", key, "handled, url:", json.Get("data.url").Str)
 	return data, key, nil
 }
 
