@@ -16,7 +16,8 @@ DD@Home in golang
 ./DDatHome uninstall
 ```
 
-#### 配置文件
+#### 配置文件 "config.json"
+配置文件需要和主程序放在同一个目录下
 ```
 {
   "nickname":"DD", //这里是昵称
