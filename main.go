@@ -3,55 +3,89 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/kardianos/service"
-	"github.com/tidwall/gjson"
-	"golang.org/x/net/websocket"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/goccy/go-json"
+	"github.com/kardianos/service"
+	"golang.org/x/net/websocket"
 )
 
-type program struct{}
+const VERSION = "1.1.0"
 
-func (p *program) Start(s service.Service) error {
-	go p.run()
-	return nil
+type Program struct {
+	Configs Config
+	ws      *websocket.Conn
 }
 
-type GoResult struct {
+type Config struct {
+	NickName string `json:"NickName"`
+	Interval int    `json:"Interval"`
+	UUID     string `json:"UUID"`
+	URL      string `json:"UpstreamURL"`
+	Hide     bool   `json:"HidePlatformInfo"`
+}
+
+type Result struct {
+	Key  string `json:"key"`
+	Data struct {
+		Type string `json:"type"`
+		URL  string `json:"url"`
+	} `json:"data"`
+}
+
+type Response struct {
 	Key   string `json:"key"`
 	Data  string `json:"data"`
 	Error string `json:"error"`
 }
 
-var (
-	ddName   string  = "DD"
-	interval float64 = 500
-	version  string  = "1.0.1"
-	ws       *websocket.Conn
-)
-
-func (p *program) run() {
-	FileName := getCurrentDirectory() + "/config.json"
-	if Exists(FileName) {
-		b, err := ioutil.ReadFile(FileName)
-		if err != nil {
-			panic(err)
-		}
-		jsons := gjson.Parse(string(b))
-		ddName = jsons.Get("nickname").Str
-		interval = jsons.Get("interval").Num
+func (c *Config) getUpstreamURL() string {
+	u, err := url.Parse(c.URL)
+	if err != nil {
+		panic(err)
 	}
 
-	urls := "wss://cluster.vtbs.moe/?runtime=go&version=" + version + "&platform=" + runtime.GOOS + "&name=" + url.QueryEscape(ddName)
+	v := url.Values{}
+	if !c.Hide {
+		v.Add("runtime", "go")
+		v.Add("version", VERSION)
+		v.Add("platform", runtime.GOOS)
+	}
+	if c.UUID != "" {
+		re := regexp.MustCompile("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
+		if re.Match([]byte(c.UUID)) {
+			v.Add("uuid", c.UUID)
+		}
+	}
+	if c.NickName != "" {
+		v.Add("name", c.NickName)
+	}
+
+	u.RawQuery = v.Encode()
+	return u.String()
+}
+
+func (p *Program) Start(s service.Service) error {
+	go p.run()
+	return nil
+}
+
+func (p *Program) Stop(s service.Service) error {
+	return nil
+}
+
+func (p *Program) run() {
+	urls := p.Configs.getUpstreamURL()
 
 	fmt.Println("Dial", urls)
 	connect := func() error {
@@ -59,32 +93,32 @@ func (p *program) run() {
 		if err != nil {
 			return err
 		}
-		ws = conn
+		p.ws = conn
 		return nil
 	}
 	if err := connect(); err != nil {
 		panic(err)
 	}
 	for {
-		time.Sleep(time.Millisecond * time.Duration(interval))
-		_, err := ws.Write([]byte("DDhttp"))
+		time.Sleep(time.Millisecond * time.Duration(p.Configs.Interval))
+		_, err := p.ws.Write([]byte("DDhttp"))
 		if err != nil {
-			_ = ws.Close()
+			_ = p.ws.Close()
 			for connect() != nil {
-				_ = ws.Close()
+				_ = p.ws.Close()
 				time.Sleep(time.Millisecond * time.Duration(500))
 			}
 			fmt.Println("reconnect success.")
 			continue
 		}
 		buf := make([]byte, 1024*100) //100k
-		dataLen, err := ws.Read(buf)
+		dataLen, err := p.ws.Read(buf)
 		if err != nil {
 			fmt.Println("error to read websocket:", err)
 			continue
 		}
 		data, key, err := Processor(buf[:dataLen])
-		res := &GoResult{
+		res := &Response{
 			Key:  key,
 			Data: data,
 		}
@@ -96,16 +130,12 @@ func (p *program) run() {
 			fmt.Println("json error:", err)
 			continue
 		}
-		_, err = ws.Write(json)
+		_, err = p.ws.Write(json)
 		if err != nil {
 			fmt.Println("error to write websocket:", err)
 			continue
 		}
 	}
-}
-
-func (p *program) Stop(s service.Service) error {
-	return nil
 }
 
 func main() {
@@ -114,11 +144,9 @@ func main() {
 		DisplayName: "DD@Home",
 		Description: "DD@home Service",
 	}
-	prg := &program{}
+	prg := &Program{}
+	prg.Configs = GetConfig()
 	s, err := service.New(prg, svcConfig)
-	if err != nil {
-		fmt.Println(err)
-	}
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -152,19 +180,24 @@ func main() {
 }
 
 func Processor(payload []byte) (string, string, error) {
-	json := gjson.Parse(string(payload))
-	key := json.Get("key").Str
-	if json.Get("data.type").Str != "http" {
-		fmt.Println("task", key, "un-support type", json.Get("data.type").Str)
-		return "", key, errors.New("un-support data type")
-	}
-	data, err := GetString(json.Get("data.url").Str)
+	var loadedPayload Result
+	err := json.Unmarshal(payload, &loadedPayload)
 	if err != nil {
-		fmt.Println("task", key, "error:", err)
-		return "", key, err
+		fmt.Println("error:", err)
+		return "", "", err
 	}
-	fmt.Println("task", key, "handled, url:", json.Get("data.url").Str)
-	return data, key, nil
+
+	if loadedPayload.Data.Type != "http" {
+		fmt.Println("task", loadedPayload.Key, "un-support type", loadedPayload.Data.Type)
+		return "", loadedPayload.Key, errors.New("un-support data type")
+	}
+	data, err := GetString(loadedPayload.Data.URL)
+	if err != nil {
+		fmt.Println("task", loadedPayload.Key, "error:", err)
+		return "", loadedPayload.Key, err
+	}
+	fmt.Println("task", loadedPayload.Key, "handled, url:", loadedPayload.Data.URL)
+	return data, loadedPayload.Key, nil
 }
 
 func GetBytes(url string) ([]byte, error) {
@@ -177,14 +210,14 @@ func GetBytes(url string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 	if strings.Contains(resp.Header.Get("Content-Encoding"), "gzip") {
 		buffer := bytes.NewBuffer(body)
 		r, _ := gzip.NewReader(buffer)
-		unCom, err := ioutil.ReadAll(r)
+		unCom, err := io.ReadAll(r)
 		return unCom, err
 	}
 	return body, nil
@@ -198,7 +231,7 @@ func GetString(url string) (string, error) {
 	return string(bytes), nil
 }
 
-func getCurrentDirectory() string {
+func GetCurrentDirectory() string {
 	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
 	if err != nil {
 		panic(err)
@@ -209,10 +242,35 @@ func getCurrentDirectory() string {
 func Exists(path string) bool {
 	_, err := os.Stat(path)
 	if err != nil {
-		if os.IsExist(err) {
-			return true
-		}
-		return false
+		return os.IsExist(err)
 	}
 	return true
+}
+
+func GetConfig() Config {
+	var ReadedConfig []byte
+	var GetedConfigs Config
+	var err error
+	FileName := GetCurrentDirectory() + "/config.json"
+	if Exists(FileName) {
+		ReadedConfig, err = os.ReadFile(FileName)
+		if err != nil {
+			panic(err)
+		}
+	} else {
+		ReadedConfig = []byte(
+			`{
+	"NickName": null,
+	"Interval": 1280,
+	"UUID": null,
+	"UpstreamURL": "wss://cluster.vtbs.moe/",
+	"HidePlatformInfo": false
+}`)
+		os.WriteFile(FileName, ReadedConfig, 0644)
+	}
+	err = json.Unmarshal(ReadedConfig, &GetedConfigs)
+	if err != nil {
+		panic(err)
+	}
+	return GetedConfigs
 }
