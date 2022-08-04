@@ -5,7 +5,7 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
-      - name: Check out code into the Go module directory
+      - name: Check out
         uses: actions/checkout@v3
 
       - name: Build with xgo
@@ -17,7 +17,7 @@ jobs:
           x: false
           ldflags: -s -w
 
-      - name: Archive artifacts
+      - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
           name: build

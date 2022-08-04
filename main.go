@@ -65,6 +65,8 @@ func (c *Config) getUpstreamURL() string {
 		re := regexp.MustCompile("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
 		if re.Match([]byte(c.UUID)) {
 			v.Add("uuid", c.UUID)
+		} else {
+			fmt.Println("Incorrect uuid format, ignore it")
 		}
 	}
 	if c.NickName != "" {

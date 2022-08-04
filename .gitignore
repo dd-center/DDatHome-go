@@ -1,5 +1,6 @@
 # Build
-Build/
+build/
+dist/
 
 # Configs
 config.json
