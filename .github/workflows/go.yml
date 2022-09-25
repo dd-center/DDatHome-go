@@ -11,8 +11,8 @@ jobs:
       - name: Build with xgo
         uses: crazy-max/ghaction-xgo@v2
         with:
-          dest: build
-          targets: windows/386,windows/amd64,linux/386,linux/amd64,darwin/386,darwin/amd64,linux/arm64,linux/mips64,linux/mips64le
+          dest: dist
+          targets: windows/386,windows/amd64,darwin/arm64,darwin/amd64,linux/386,linux/amd64,linux/arm64,linux/mips64,linux/mips64le
           v: true
           x: false
           ldflags: -s -w
@@ -20,5 +20,5 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: build
-          path: build
+          name: DDatHome-go
+          path: dist

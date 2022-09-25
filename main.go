@@ -20,6 +20,7 @@ import (
 	"golang.org/x/net/websocket"
 )
 
+const PROGRAM_NAME = "DDatHome-go"
 const VERSION = "1.1.0"
 
 type Program struct {
@@ -141,8 +142,9 @@ func (p *Program) run() {
 }
 
 func main() {
+	fmt.Printf("%s - v%s, running using %s %s.\n", PROGRAM_NAME, VERSION, runtime.GOOS, runtime.GOARCH)
 	svcConfig := &service.Config{
-		Name:        "DDatHome",
+		Name:        PROGRAM_NAME,
 		DisplayName: "DD@Home",
 		Description: "DD@home Service",
 	}
@@ -157,7 +159,7 @@ func main() {
 		if os.Args[1] == "install" {
 			err := s.Install()
 			if err != nil {
-				fmt.Println("Service install failed: " + err.Error())
+				fmt.Println("Service install failed:", err.Error())
 				return
 			}
 			fmt.Println("Service install successfully!")
@@ -167,7 +169,7 @@ func main() {
 		if os.Args[1] == "uninstall" {
 			err := s.Uninstall()
 			if err != nil {
-				fmt.Println("Service uninstall failed" + err.Error())
+				fmt.Println("Service uninstall failed", err.Error())
 				return
 			}
 			fmt.Println("Service uninstall successfully!")
@@ -233,14 +235,6 @@ func GetString(url string) (string, error) {
 	return string(bytes), nil
 }
 
-func GetCurrentDirectory() string {
-	dir, err := filepath.Abs(filepath.Dir(os.Args[0]))
-	if err != nil {
-		panic(err)
-	}
-	return strings.Replace(dir, "\\", "/", -1)
-}
-
 func Exists(path string) bool {
 	_, err := os.Stat(path)
 	if err != nil {
@@ -250,17 +244,18 @@ func Exists(path string) bool {
 }
 
 func GetConfig() Config {
-	var ReadedConfig []byte
-	var GetedConfigs Config
+	var readedConfig []byte
+	var getedConfigs Config
 	var err error
-	FileName := GetCurrentDirectory() + "/config.json"
-	if Exists(FileName) {
-		ReadedConfig, err = os.ReadFile(FileName)
+	workingDir, _ := os.Getwd()
+	fileName, _ := filepath.Abs(workingDir + "/config.json")
+	if Exists(fileName) {
+		readedConfig, err = os.ReadFile(fileName)
 		if err != nil {
 			panic(err)
 		}
 	} else {
-		ReadedConfig = []byte(
+		readedConfig = []byte(
 			`{
 	"NickName": null,
 	"Interval": 1280,
@@ -268,11 +263,11 @@ func GetConfig() Config {
 	"UpstreamURL": "wss://cluster.vtbs.moe/",
 	"HidePlatformInfo": false
 }`)
-		os.WriteFile(FileName, ReadedConfig, 0644)
+		os.WriteFile(fileName, readedConfig, 0644)
 	}
-	err = json.Unmarshal(ReadedConfig, &GetedConfigs)
+	err = json.Unmarshal(readedConfig, &getedConfigs)
 	if err != nil {
 		panic(err)
 	}
-	return GetedConfigs
+	return getedConfigs
 }

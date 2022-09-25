@@ -77,20 +77,31 @@ sudo docker run -d imlonghao/ddathome-go
 ## 如何从头编译
 
 1. 去[官网](https://go.dev/dl/)下载并安装符合你操作系统的Go
-
 2. 下载[本项目](https://github.com/dd-center/DDatHome-go/archive/refs/heads/master.zip)
+3. 解压下载到的压缩包
+4. 使用脚本或使用下方的命令编译
+   * 脚本
 
-3. 解压，在Windows上可以直接双击build.bat来编译，在linux或者Mac上用
+      ```sh
+      # 请注意工作目录应为根目录
+      # Windows cmd
+      .\tools\build.bat
 
-   ```sh
-   go build
-   ```
+      # Fish Shell
+      ./tools/build.fish
+      ```
 
-4. 去编译好后的bin文件夹运行你需要的版本，可按照上方使用说明进行操作
+   * 命令
+
+      ```sh
+      go build -ldflags "-s -w"
+      ```
+
+5. 进入存放编译后成品的文件夹 (dist 文件夹) 寻找你需要的版本 (若你在上一步使用的是命令编译则编译结果就在当前位置下), 之后可按照上方使用说明进行操作
 
 ## 依赖
 
-|库名称                                          |版本  |
+|库名称                                          |版本   |
 |-----------------------------------------------|------|
-|[go-json](https://github.com/goccy/go-json)    |0.9.10|
+|[go-json](https://github.com/goccy/go-json)    |0.9.11|
 |[service](https://github.com/kardianos/service)|1.2.1 |
