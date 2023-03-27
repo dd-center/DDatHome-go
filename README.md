@@ -28,16 +28,25 @@ chmod +x DDatHome-go-linux-amd64
 
 #### 作为系统服务安装
 
-支持Windows和Linux，需要管理员权限，服务名：DDatHome
+支持Windows和Linux，需要管理员(Linux命令需要sudo)权限，服务名：DDatHome-go
 
 ```sh
-./DDatHome-go-linux-amd64 install
+sudo ./DDatHome-go-linux-amd64 install
+# linux下接着输入
+sudo systemctl start DDatHome-go  
+# 检查是否运行成功
+systemctl status DDatHome-go
+# 看到绿色active运行成功，可以ctrl+c退出
+
+# 想改配置就去编辑系统最根目录 / 下生成的config.json文件，也可以把原有配置粘贴过去
+
 ```
 
 卸载服务
 
 ```sh
-./DDatHome-go-linux-amd64 uninstall
+# linux记得先关闭服务sudo systemctl stop DDatHome-go
+sudo ./DDatHome-go-linux-amd64 uninstall
 ```
 
 #### Docker
