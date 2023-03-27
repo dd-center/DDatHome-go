@@ -18,6 +18,7 @@ import (
 	"github.com/goccy/go-json"
 	"github.com/kardianos/service"
 	"golang.org/x/net/websocket"
+	"github.com/google/uuid"
 )
 
 const PROGRAM_NAME = "DDatHome-go"
@@ -257,7 +258,7 @@ func GetConfig() Config {
 	} else {
 		readedConfig = []byte(
 			`{
-	"NickName": null,
+	"NickName": "goDD",
 	"Interval": 1280,
 	"UUID": null,
 	"UpstreamURL": "wss://cluster.vtbs.moe/",
