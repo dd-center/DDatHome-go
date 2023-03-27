@@ -18,11 +18,10 @@ import (
 	"github.com/goccy/go-json"
 	"github.com/kardianos/service"
 	"golang.org/x/net/websocket"
-	"github.com/google/uuid"
 )
 
 const PROGRAM_NAME = "DDatHome-go"
-const VERSION = "1.1.0"
+const VERSION = "1.1.1"
 
 type Program struct {
 	Configs Config
