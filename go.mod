@@ -5,5 +5,5 @@ go 1.16
 require (
 	github.com/goccy/go-json v0.9.11
 	github.com/kardianos/service v1.2.1
-	golang.org/x/net v0.7.0
+	golang.org/x/net v0.17.0
 )
