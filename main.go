@@ -60,7 +60,7 @@ func (c *Config) getUpstreamURL() string {
 	if !c.Hide {
 		v.Add("runtime", "go")
 		v.Add("version", VERSION)
-		v.Add("platform", runtime.GOOS)
+		v.Add("platform", runtime.GOOS + "-" + runtime.GOARCH)
 	}
 	if c.UUID != "" {
 		re := regexp.MustCompile("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
