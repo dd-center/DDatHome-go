@@ -3,3 +3,6 @@ dist/
 
 # Configs
 config.json
+data/
+*.test
+coverage*

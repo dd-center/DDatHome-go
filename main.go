@@ -1,273 +1,166 @@
 package main
 
 import (
-	"bytes"
-	"compress/gzip"
+	"context"
+	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
-	"io"
+	"log/slog"
+	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
-	"strings"
 	"time"
 
-	"github.com/goccy/go-json"
 	"github.com/kardianos/service"
-	"golang.org/x/net/websocket"
 )
 
-const PROGRAM_NAME = "DDatHome-go"
-const VERSION = "1.1.1"
-
-type Program struct {
-	Configs Config
-	ws      *websocket.Conn
+type program struct {
+	worker *Worker
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
-type Config struct {
-	NickName string `json:"NickName"`
-	Interval int    `json:"Interval"`
-	UUID     string `json:"UUID"`
-	URL      string `json:"UpstreamURL"`
-	Hide     bool   `json:"HidePlatformInfo"`
-}
-
-type Result struct {
-	Key  string `json:"key"`
-	Data struct {
-		Type string `json:"type"`
-		URL  string `json:"url"`
-	} `json:"data"`
-}
-
-type Response struct {
-	Key   string `json:"key"`
-	Data  string `json:"data"`
-	Error string `json:"error"`
-}
-
-func (c *Config) getUpstreamURL() string {
-	u, err := url.Parse(c.URL)
-	if err != nil {
-		panic(err)
+func (p *program) Start(service.Service) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	p.cancel = cancel
+	p.done = make(chan struct{})
+	var server *http.Server
+	var listener net.Listener
+	if p.worker.config.StatusAddress != "" {
+		var err error
+		listener, err = net.Listen("tcp", p.worker.config.StatusAddress)
+		if err != nil {
+			cancel()
+			close(p.done)
+			return fmt.Errorf("status listener: %w", err)
+		}
+		server = &http.Server{Handler: p.worker.statusHandler(), ReadHeaderTimeout: 3 * time.Second, WriteTimeout: 3 * time.Second, IdleTimeout: 30 * time.Second}
 	}
-
-	v := url.Values{}
-	if !c.Hide {
-		v.Add("runtime", "go")
-		v.Add("version", VERSION)
-		v.Add("platform", runtime.GOOS + "-" + runtime.GOARCH)
-	}
-	if c.UUID != "" {
-		re := regexp.MustCompile("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$")
-		if re.Match([]byte(c.UUID)) {
-			v.Add("uuid", c.UUID)
+	go func() {
+		defer close(p.done)
+		serverDone := make(chan struct{})
+		if server != nil {
+			go func() {
+				defer close(serverDone)
+				if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					p.worker.log.Error("status server failed", "error", err)
+					cancel()
+				}
+			}()
 		} else {
-			fmt.Println("Incorrect uuid format, ignore it")
+			close(serverDone)
 		}
-	}
-	if c.NickName != "" {
-		v.Add("name", c.NickName)
-	}
-
-	u.RawQuery = v.Encode()
-	return u.String()
+		p.worker.Run(ctx)
+		if server != nil {
+			server.Close()
+		}
+		<-serverDone
+	}()
+	return nil
 }
-
-func (p *Program) Start(s service.Service) error {
-	go p.run()
+func (p *program) Stop(service.Service) error {
+	if p.cancel != nil {
+		p.cancel()
+		<-p.done
+	}
 	return nil
 }
 
-func (p *Program) Stop(s service.Service) error {
-	return nil
-}
-
-func (p *Program) run() {
-	urls := p.Configs.getUpstreamURL()
-
-	fmt.Println("Dial", urls)
-	connect := func() error {
-		conn, err := websocket.Dial(urls, "", "https://cluster.vtbs.moe")
-		if err != nil {
-			return err
+func (w *Worker) statusHandler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /livez", func(rw http.ResponseWriter, r *http.Request) { rw.Write([]byte("ok\n")) })
+	mux.HandleFunc("GET /healthz", func(rw http.ResponseWriter, r *http.Request) {
+		if !w.snapshot().Ready {
+			http.Error(rw, "scheduler not ready", http.StatusServiceUnavailable)
+			return
 		}
-		p.ws = conn
-		return nil
-	}
-	if err := connect(); err != nil {
-		panic(err)
-	}
-	for {
-		time.Sleep(time.Millisecond * time.Duration(p.Configs.Interval))
-		_, err := p.ws.Write([]byte("DDhttp"))
-		if err != nil {
-			_ = p.ws.Close()
-			for connect() != nil {
-				_ = p.ws.Close()
-				time.Sleep(time.Millisecond * time.Duration(500))
-			}
-			fmt.Println("reconnect success.")
-			continue
-		}
-		buf := make([]byte, 1024*100) //100k
-		dataLen, err := p.ws.Read(buf)
-		if err != nil {
-			fmt.Println("error to read websocket:", err)
-			continue
-		}
-		data, key, err := Processor(buf[:dataLen])
-		res := &Response{
-			Key:  key,
-			Data: data,
-		}
-		if err != nil {
-			res.Error = err.Error()
-		}
-		json, err := json.Marshal(res)
-		if err != nil {
-			fmt.Println("json error:", err)
-			continue
-		}
-		_, err = p.ws.Write(json)
-		if err != nil {
-			fmt.Println("error to write websocket:", err)
-			continue
-		}
-	}
+		rw.Write([]byte("ok\n"))
+	})
+	mux.HandleFunc("GET /status", func(rw http.ResponseWriter, r *http.Request) {
+		rw.Header().Set("Content-Type", "application/json")
+		rw.Header().Set("Cache-Control", "no-store")
+		json.NewEncoder(rw).Encode(struct {
+			Stats
+			Name    string `json:"name"`
+			UUID    string `json:"uuid"`
+			Version string `json:"version"`
+		}{w.snapshot(), w.config.NickName, w.config.UUID, version})
+	})
+	return mux
 }
 
 func main() {
-	fmt.Printf("%s - v%s, running using %s %s.\n", PROGRAM_NAME, VERSION, runtime.GOOS, runtime.GOARCH)
-	svcConfig := &service.Config{
-		Name:        PROGRAM_NAME,
-		DisplayName: "DD@Home",
-		Description: "DD@home Service",
+	if err := runCLI(os.Args[1:]); err != nil {
+		slog.Error("DDatHome-go", "error", err)
+		os.Exit(1)
 	}
-	prg := &Program{}
-	prg.Configs = GetConfig()
-	s, err := service.New(prg, svcConfig)
+}
+func runCLI(args []string) error {
+	exe, err := os.Executable()
 	if err != nil {
-		fmt.Println(err)
+		return err
 	}
-
-	if len(os.Args) > 1 {
-		if os.Args[1] == "install" {
-			err := s.Install()
-			if err != nil {
-				fmt.Println("Service install failed:", err.Error())
-				return
-			}
-			fmt.Println("Service install successfully!")
-			return
-		}
-
-		if os.Args[1] == "uninstall" {
-			err := s.Uninstall()
-			if err != nil {
-				fmt.Println("Service uninstall failed", err.Error())
-				return
-			}
-			fmt.Println("Service uninstall successfully!")
-			return
+	flags := flag.NewFlagSet(programName, flag.ContinueOnError)
+	configPath := flags.String("config", filepath.Join(filepath.Dir(exe), "config.json"), "configuration file (default: next to executable)")
+	showVersion := flags.Bool("version", false, "print version and exit")
+	check := flags.Bool("check-config", false, "validate configuration and persist missing identity, then exit")
+	command := ""
+	if len(args) > 0 {
+		switch args[0] {
+		case "install", "uninstall", "start", "stop", "restart":
+			command = args[0]
+			args = args[1:]
 		}
 	}
-
-	err = s.Run()
+	if err = flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if flags.NArg() != 0 {
+		return fmt.Errorf("unexpected argument %q", flags.Arg(0))
+	}
+	if *showVersion {
+		fmt.Printf("%s %s (%s %s/%s)\n", programName, version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+		return nil
+	}
+	absolute, err := filepath.Abs(*configPath)
 	if err != nil {
-		fmt.Println(err)
+		return err
 	}
-}
-
-func Processor(payload []byte) (string, string, error) {
-	var loadedPayload Result
-	err := json.Unmarshal(payload, &loadedPayload)
-	if err != nil {
-		fmt.Println("error:", err)
-		return "", "", err
-	}
-
-	if loadedPayload.Data.Type != "http" {
-		fmt.Println("task", loadedPayload.Key, "un-support type", loadedPayload.Data.Type)
-		return "", loadedPayload.Key, errors.New("un-support data type")
-	}
-	data, err := GetString(loadedPayload.Data.URL)
-	if err != nil {
-		fmt.Println("task", loadedPayload.Key, "error:", err)
-		return "", loadedPayload.Key, err
-	}
-	fmt.Println("task", loadedPayload.Key, "handled, url:", loadedPayload.Data.URL)
-	return data, loadedPayload.Key, nil
-}
-
-func GetBytes(url string) ([]byte, error) {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if strings.Contains(resp.Header.Get("Content-Encoding"), "gzip") {
-		buffer := bytes.NewBuffer(body)
-		r, _ := gzip.NewReader(buffer)
-		unCom, err := io.ReadAll(r)
-		return unCom, err
-	}
-	return body, nil
-}
-
-func GetString(url string) (string, error) {
-	bytes, err := GetBytes(url)
-	if err != nil {
-		return "", err
-	}
-	return string(bytes), nil
-}
-
-func Exists(path string) bool {
-	_, err := os.Stat(path)
-	if err != nil {
-		return os.IsExist(err)
-	}
-	return true
-}
-
-func GetConfig() Config {
-	var readedConfig []byte
-	var getedConfigs Config
-	var err error
-	workingDir, _ := os.Getwd()
-	fileName, _ := filepath.Abs(workingDir + "/config.json")
-	if Exists(fileName) {
-		readedConfig, err = os.ReadFile(fileName)
+	// Service control must still work when an existing config has been damaged.
+	c := defaultConfig()
+	if command == "" || command == "install" || *check {
+		c, err = loadConfig(absolute)
 		if err != nil {
-			panic(err)
+			return err
 		}
-	} else {
-		readedConfig = []byte(
-			`{
-	"NickName": "goDD",
-	"Interval": 1280,
-	"UUID": null,
-	"UpstreamURL": "wss://cluster.vtbs.moe/",
-	"HidePlatformInfo": false
-}`)
-		os.WriteFile(fileName, readedConfig, 0644)
 	}
-	err = json.Unmarshal(readedConfig, &getedConfigs)
+	if *check {
+		fmt.Printf("Configuration OK: %s\nName: %s\nUUID: %s\n", absolute, c.NickName, c.UUID)
+		return nil
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	p := &program{worker: newWorker(c, log)}
+	svc, err := service.New(p, serviceConfig(exe, absolute))
 	if err != nil {
-		panic(err)
+		return err
 	}
-	return getedConfigs
+	if command != "" {
+		if err = service.Control(svc, command); err != nil {
+			return err
+		}
+		fmt.Println("Service", command, "successful")
+		return nil
+	}
+	log.Info("starting", "version", version, "go", runtime.Version(), "name", c.NickName, "uuid", c.UUID, "config", absolute, "roomLimit", c.RoomLimit)
+	return svc.Run()
+}
+
+func serviceConfig(exe, configPath string) *service.Config {
+	return &service.Config{Name: programName, DisplayName: "DD@Home", Description: "DD@Home Go worker", Executable: exe, Arguments: []string{"--config", configPath}, WorkingDirectory: filepath.Dir(configPath)}
 }

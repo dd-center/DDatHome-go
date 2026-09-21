@@ -1,0 +1,17 @@
+services:
+  ddathome:
+    build: .
+    restart: unless-stopped
+    stop_grace_period: 15s
+    mem_limit: 192m
+    cpus: 1.0
+    pids_limit: 128
+    volumes:
+      - identity:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+volumes:
+  identity:
