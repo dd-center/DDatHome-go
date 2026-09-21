@@ -1,33 +1,17 @@
-@ECHO OFF
-mkdir dist
-
-::windows x64
-set GOOS=windows
-set GOARCH=amd64
-go build -ldflags "-s -w" -o .\dist\DDatHome-go-windows-amd64.exe
-
-::windows x32
-set GOOS=windows
-set GOARCH=386
-go build -ldflags "-s -w" -o .\dist\DDatHome-go-windows-386.exe
-
-::linux x64
-set GOOS=linux
-set GOARCH=amd64
-go build -ldflags "-s -w" -o .\dist\DDatHome-go-linux-amd64
-
-::linux x32
-set GOOS=linux
-set GOARCH=386
-go build -ldflags "-s -w" -o .\dist\DDatHome-go-linux-386
-
-::linux arm7
-set GOOS=linux
-set GOARCH=arm
+@echo off
+setlocal
+if not exist dist mkdir dist
+set CGO_ENABLED=0
 set GOARM=7
-go build -ldflags "-s -w" -o .\dist\DDatHome-go-linux-arm7
-
-::linux arm64
-set GOOS=linux
-set GOARCH=arm64
-go build -ldflags "-s -w" -o .\dist\DDatHome-go-linux-arm64
+for %%T in (windows/386 windows/amd64 windows/arm64 darwin/amd64 darwin/arm64 linux/386 linux/amd64 linux/arm linux/arm64 linux/mips64 linux/mips64le) do (
+  for /f "tokens=1,2 delims=/" %%A in ("%%T") do (
+    set GOOS=%%A
+    set GOARCH=%%B
+    if "%%A"=="windows" (
+      go build -trimpath -ldflags "-s -w" -o dist\DDatHome-go-%%A-%%B.exe .
+    ) else (
+      go build -trimpath -ldflags "-s -w" -o dist\DDatHome-go-%%A-%%B .
+    )
+    if errorlevel 1 exit /b 1
+  )
+)

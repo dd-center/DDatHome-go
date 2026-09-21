@@ -1,0 +1,6 @@
+.git
+dist
+config.json
+data
+*.test
+coverage*

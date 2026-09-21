@@ -1,0 +1,12 @@
+{
+  "NickName": "",
+  "Interval": 1280,
+  "UUID": "",
+  "UpstreamURL": "wss://cluster.vtbs.moe/",
+  "HidePlatformInfo": false,
+  "HTTPConcurrency": 2,
+  "HTTPTimeoutMS": 10000,
+  "RoomLimit": 5,
+  "StatusAddress": "127.0.0.1:9465",
+  "Verbose": false
+}
