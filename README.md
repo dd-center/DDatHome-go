@@ -91,7 +91,16 @@ docker compose stop
 
 多阶段构建使用 Go 1.27.1，最终镜像只含静态程序和 CA 证书，以非 root 用户运行。身份保存在命名卷；重建镜像不会丢失。`docker compose down -v` 会删除身份卷。
 
-调整配置可使用 `docker compose cp ddathome:/data/config.json ./config.json` 导出，停止服务后编辑，再用 `docker compose cp ./config.json ddathome:/data/config.json` 放回，`docker compose start` 启动。保留容器内文件的读写权限，不要将身份文件设成其他用户不可读写。
+调整配置可使用 `docker compose cp ddathome:/data/config.json ./config.json` 导出，停止服务后编辑，保留已生成的 UUID 和昵称。然后创建 `compose.override.yaml`：
+
+```yaml
+services:
+  ddathome:
+    volumes:
+      - ./config.json:/data/config.json:ro
+```
+
+Linux/macOS 设置 `chmod 644 config.json` 使容器用户可以读取，再执行 `docker compose up -d`。此时配置和身份由宿主机文件保存；只读文件必须已有非空 UUID 和昵称，程序才无需生成并写入。
 
 状态接口在容器的回环地址上，Compose 不发布它，宿主机查看日志即可。默认内存上限 192 MiB、CPU 上限 1，日志轮转最多约 30 MB。这些是资源限制，实际占用取决于任务及直播负载；进程退出由 Docker 重启，客户端内部负责网络恢复。
 
